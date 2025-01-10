@@ -1714,6 +1714,10 @@ pub fn keyEvent(
         }
     }
 
+    if (std.math.cast(u21, keyval_unicode)) |cp| {
+        if (cp == 0x1B) self.im_composing = false;
+    }
+
     // Invoke the core Ghostty logic to handle this input.
     const effect = self.core_surface.keyCallback(.{
         .action = action,
