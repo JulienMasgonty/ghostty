@@ -49,7 +49,7 @@ alloc: std.mem.Allocator,
 config: DerivedConfig,
 
 /// Current font metrics defining our grid.
-grid_metrics: font.face.Metrics,
+grid_metrics: font.Metrics,
 
 /// The size of everything.
 size: renderer.Size,
@@ -146,7 +146,7 @@ image_bg_end: u32 = 0,
 image_text_end: u32 = 0,
 image_virtual: bool = false,
 
-/// Defererred OpenGL operation to update the screen size.
+/// Deferred OpenGL operation to update the screen size.
 const SetScreenSize = struct {
     size: renderer.Size,
 
@@ -231,7 +231,7 @@ const SetScreenSize = struct {
 };
 
 const SetFontSize = struct {
-    metrics: font.face.Metrics,
+    metrics: font.Metrics,
 
     fn apply(self: SetFontSize, r: *const OpenGL) !void {
         const gl_state = r.gl_state orelse return error.OpenGLUninitialized;
@@ -272,6 +272,7 @@ pub const DerivedConfig = struct {
     arena: ArenaAllocator,
 
     font_thicken: bool,
+    font_thicken_strength: u8,
     font_features: std.ArrayListUnmanaged([:0]const u8),
     font_styles: font.CodepointResolver.StyleStatus,
     cursor_color: ?terminal.color.RGB,
@@ -321,6 +322,7 @@ pub const DerivedConfig = struct {
         return .{
             .background_opacity = @max(0, @min(1, config.@"background-opacity")),
             .font_thicken = config.@"font-thicken",
+            .font_thicken_strength = config.@"font-thicken-strength",
             .font_features = font_features.list,
             .font_styles = font_styles,
 
@@ -764,7 +766,7 @@ pub fn updateFrame(
 
         // We used to share terminal state, but we've since learned through
         // analysis that it is faster to copy the terminal state than to
-        // hold the lock wile rebuilding GPU cells.
+        // hold the lock while rebuilding GPU cells.
         var screen_copy = try state.terminal.screen.clone(
             self.alloc,
             .{ .viewport = .{} },
@@ -1735,8 +1737,13 @@ pub fn rebuildCells(
 
         const cursor_color = self.cursor_color orelse self.default_cursor_color orelse color: {
             if (self.cursor_invert) {
+                // Use the foreground color from the cell under the cursor, if any.
                 const sty = screen.cursor.page_pin.style(screen.cursor.page_cell);
-                break :color sty.fg(color_palette, self.config.bold_is_bright) orelse self.foreground_color orelse self.default_foreground_color;
+                break :color if (sty.flags.inverse)
+                    // If the cell is reversed, use background color instead.
+                    (sty.bg(screen.cursor.page_cell, color_palette) orelse self.background_color orelse self.default_background_color)
+                else
+                    (sty.fg(color_palette, self.config.bold_is_bright) orelse self.foreground_color orelse self.default_foreground_color);
             } else {
                 break :color self.foreground_color orelse self.default_foreground_color;
             }
@@ -1746,8 +1753,13 @@ pub fn rebuildCells(
         for (cursor_cells.items) |*cell| {
             if (cell.mode.isFg() and cell.mode != .fg_color) {
                 const cell_color = if (self.cursor_invert) blk: {
+                    // Use the background color from the cell under the cursor, if any.
                     const sty = screen.cursor.page_pin.style(screen.cursor.page_cell);
-                    break :blk sty.bg(screen.cursor.page_cell, color_palette) orelse self.background_color orelse self.default_background_color;
+                    break :blk if (sty.flags.inverse)
+                        // If the cell is reversed, use foreground color instead.
+                        (sty.fg(color_palette, self.config.bold_is_bright) orelse self.foreground_color orelse self.default_foreground_color)
+                    else
+                        (sty.bg(screen.cursor.page_cell, color_palette) orelse self.background_color orelse self.default_background_color);
                 } else if (self.config.cursor_text) |txt|
                     txt
                 else
@@ -2093,6 +2105,7 @@ fn addGlyph(
         .{
             .grid_metrics = self.grid_metrics,
             .thicken = self.config.font_thicken,
+            .thicken_strength = self.config.font_thicken_strength,
         },
     );
 

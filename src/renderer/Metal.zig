@@ -68,7 +68,7 @@ config: DerivedConfig,
 surface_mailbox: apprt.surface.Mailbox,
 
 /// Current font metrics defining our grid.
-grid_metrics: font.face.Metrics,
+grid_metrics: font.Metrics,
 
 /// The size of everything.
 size: renderer.Size,
@@ -209,20 +209,31 @@ pub const GPUState = struct {
     }
 
     fn chooseDevice() error{NoMetalDevice}!objc.Object {
-        const devices = objc.Object.fromId(mtl.MTLCopyAllDevices());
-        defer devices.release();
         var chosen_device: ?objc.Object = null;
-        var iter = devices.iterate();
-        while (iter.next()) |device| {
-            // We want a GPU that’s connected to a display.
-            if (device.getProperty(bool, "isHeadless")) continue;
-            chosen_device = device;
-            // If the user has an eGPU plugged in, they probably want
-            // to use it. Otherwise, integrated GPUs are better for
-            // battery life and thermals.
-            if (device.getProperty(bool, "isRemovable") or
-                device.getProperty(bool, "isLowPower")) break;
+
+        switch (comptime builtin.os.tag) {
+            .macos => {
+                const devices = objc.Object.fromId(mtl.MTLCopyAllDevices());
+                defer devices.release();
+
+                var iter = devices.iterate();
+                while (iter.next()) |device| {
+                    // We want a GPU that’s connected to a display.
+                    if (device.getProperty(bool, "isHeadless")) continue;
+                    chosen_device = device;
+                    // If the user has an eGPU plugged in, they probably want
+                    // to use it. Otherwise, integrated GPUs are better for
+                    // battery life and thermals.
+                    if (device.getProperty(bool, "isRemovable") or
+                        device.getProperty(bool, "isLowPower")) break;
+                }
+            },
+            .ios => {
+                chosen_device = objc.Object.fromId(mtl.MTLCreateSystemDefaultDevice());
+            },
+            else => @compileError("unsupported target for Metal"),
         }
+
         const device = chosen_device orelse return error.NoMetalDevice;
         return device.retain();
     }
@@ -360,6 +371,7 @@ pub const DerivedConfig = struct {
     arena: ArenaAllocator,
 
     font_thicken: bool,
+    font_thicken_strength: u8,
     font_features: std.ArrayListUnmanaged([:0]const u8),
     font_styles: font.CodepointResolver.StyleStatus,
     cursor_color: ?terminal.color.RGB,
@@ -410,6 +422,7 @@ pub const DerivedConfig = struct {
         return .{
             .background_opacity = @max(0, @min(1, config.@"background-opacity")),
             .font_thicken = config.@"font-thicken",
+            .font_thicken_strength = config.@"font-thicken-strength",
             .font_features = font_features.list,
             .font_styles = font_styles,
 
@@ -2637,8 +2650,13 @@ fn rebuildCells(
         const style = cursor_style_ orelse break :cursor;
         const cursor_color = self.cursor_color orelse self.default_cursor_color orelse color: {
             if (self.cursor_invert) {
+                // Use the foreground color from the cell under the cursor, if any.
                 const sty = screen.cursor.page_pin.style(screen.cursor.page_cell);
-                break :color sty.fg(color_palette, self.config.bold_is_bright) orelse self.foreground_color orelse self.default_foreground_color;
+                break :color if (sty.flags.inverse)
+                    // If the cell is reversed, use background color instead.
+                    (sty.bg(screen.cursor.page_cell, color_palette) orelse self.background_color orelse self.default_background_color)
+                else
+                    (sty.fg(color_palette, self.config.bold_is_bright) orelse self.foreground_color orelse self.default_foreground_color);
             } else {
                 break :color self.foreground_color orelse self.default_foreground_color;
             }
@@ -2667,8 +2685,13 @@ fn rebuildCells(
             };
 
             const uniform_color = if (self.cursor_invert) blk: {
+                // Use the background color from the cell under the cursor, if any.
                 const sty = screen.cursor.page_pin.style(screen.cursor.page_cell);
-                break :blk sty.bg(screen.cursor.page_cell, color_palette) orelse self.background_color orelse self.default_background_color;
+                break :blk if (sty.flags.inverse)
+                    // If the cell is reversed, use foreground color instead.
+                    (sty.fg(color_palette, self.config.bold_is_bright) orelse self.foreground_color orelse self.default_foreground_color)
+                else
+                    (sty.bg(screen.cursor.page_cell, color_palette) orelse self.background_color orelse self.default_background_color);
             } else if (self.config.cursor_text) |txt|
                 txt
             else
@@ -2837,6 +2860,7 @@ fn addGlyph(
         .{
             .grid_metrics = self.grid_metrics,
             .thicken = self.config.font_thicken,
+            .thicken_strength = self.config.font_thicken_strength,
         },
     );
 

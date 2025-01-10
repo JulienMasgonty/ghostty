@@ -70,6 +70,9 @@ pub const Action = union(Key) {
     //    entry. If the value type is void then only the key needs to be
     //    added. Ensure the order matches exactly with the Zig code.
 
+    /// Quit the application.
+    quit,
+
     /// Open a new window. The target determines whether properties such
     /// as font size should be inherited.
     new_window,
@@ -78,6 +81,9 @@ pub const Action = union(Key) {
     /// the same window as the surface. If the target is the app then
     /// the tab should be opened in a new window.
     new_tab,
+
+    /// Closes the tab belonging to the currently focused split.
+    close_tab,
 
     /// Create a new split. The value determines the location of the split
     /// relative to the target.
@@ -219,8 +225,10 @@ pub const Action = union(Key) {
 
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
+        quit,
         new_window,
         new_tab,
+        close_tab,
         new_split,
         close_all_windows,
         toggle_fullscreen,
@@ -332,9 +340,9 @@ pub const GotoSplit = enum(c_int) {
     previous,
     next,
 
-    top,
+    up,
     left,
-    bottom,
+    down,
     right,
 };
 

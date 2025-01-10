@@ -111,8 +111,8 @@ class BaseTerminalController: NSWindowController,
         // Listen for local events that we need to know of outside of
         // single surface handlers.
         self.eventMonitor = NSEvent.addLocalMonitorForEvents(
-            matching: [.flagsChanged],
-            handler: localEventHandler)
+            matching: [.flagsChanged]
+        ) { [weak self] event in self?.localEventHandler(event) }
     }
 
     deinit {
@@ -160,7 +160,7 @@ class BaseTerminalController: NSWindowController,
     }
 
     // MARK: Notifications
-    
+
     @objc private func didChangeScreenParametersNotification(_ notification: Notification) {
         // If we have a window that is visible and it is outside the bounds of the
         // screen then we clamp it back to within the screen.
@@ -389,9 +389,9 @@ class BaseTerminalController: NSWindowController,
         }
 
         switch (request) {
-        case .osc_52_write:
+        case let .osc_52_write(pasteboard):
             guard case .confirm = action else { break }
-            let pb = NSPasteboard.general
+            let pb = pasteboard ?? NSPasteboard.general
             pb.declareTypes([.string], owner: nil)
             pb.setString(cc.contents, forType: .string)
         case .osc_52_read, .paste:
@@ -540,11 +540,11 @@ class BaseTerminalController: NSWindowController,
     }
 
     @IBAction func splitMoveFocusAbove(_ sender: Any) {
-        splitMoveFocus(direction: .top)
+        splitMoveFocus(direction: .up)
     }
 
     @IBAction func splitMoveFocusBelow(_ sender: Any) {
-        splitMoveFocus(direction: .bottom)
+        splitMoveFocus(direction: .down)
     }
 
     @IBAction func splitMoveFocusLeft(_ sender: Any) {
