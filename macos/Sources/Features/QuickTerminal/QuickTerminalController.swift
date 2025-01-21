@@ -230,6 +230,11 @@ class QuickTerminalController: BaseTerminalController {
         // Move our window off screen to the top
         position.setInitial(in: window, on: screen)
 
+        // We need to set our window level to a high value. In testing, only
+        // popUpMenu and above do what we want. This gets it above the menu bar
+        // and lets us render off screen.
+        window.level = .popUpMenu
+
         // Move it to the visible position since animation requires this
         DispatchQueue.main.async {
             window.makeKeyAndOrderFront(nil)
@@ -247,6 +252,11 @@ class QuickTerminalController: BaseTerminalController {
             DispatchQueue.main.async {
                 // If we canceled our animation in we do nothing
                 guard self.visible else { return }
+
+                // After animating in, we reset the window level to a value that
+                // is above other windows but not as high as popUpMenu. This allows
+                // things like IME dropdowns to appear properly.
+                window.level = .floating
 
                 // Now that the window is visible, sync our appearance. This function
                 // requires the window is visible.
@@ -339,6 +349,11 @@ class QuickTerminalController: BaseTerminalController {
             }
         }
 
+        // We need to set our window level to a high value. In testing, only
+        // popUpMenu and above do what we want. This gets it above the menu bar
+        // and lets us render off screen.
+        window.level = .popUpMenu
+
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = derivedConfig.quickTerminalAnimationDuration
             context.timingFunction = .init(name: .easeIn)
@@ -359,19 +374,6 @@ class QuickTerminalController: BaseTerminalController {
         // If our window is not visible, then no need to sync the appearance yet.
         // Some APIs such as window blur have no effect unless the window is visible.
         guard window.isVisible else { return }
-
-        // Terminals typically operate in sRGB color space and macOS defaults
-        // to "native" which is typically P3. There is a lot more resources
-        // covered in this GitHub issue: https://github.com/mitchellh/ghostty/pull/376
-        // Ghostty defaults to sRGB but this can be overridden.
-        switch (self.derivedConfig.windowColorspace) {
-        case "display-p3":
-            window.colorSpace = .displayP3
-        case "srgb":
-            fallthrough
-        default:
-            window.colorSpace = .sRGB
-        }
 
         // If we have window transparency then set it transparent. Otherwise set it opaque.
         if (self.derivedConfig.backgroundOpacity < 1) {
@@ -442,7 +444,6 @@ class QuickTerminalController: BaseTerminalController {
         let quickTerminalAnimationDuration: Double
         let quickTerminalAutoHide: Bool
         let quickTerminalSpaceBehavior: QuickTerminalSpaceBehavior
-        let windowColorspace: String
         let backgroundOpacity: Double
 
         init() {
@@ -450,7 +451,6 @@ class QuickTerminalController: BaseTerminalController {
             self.quickTerminalAnimationDuration = 0.2
             self.quickTerminalAutoHide = true
             self.quickTerminalSpaceBehavior = .move
-            self.windowColorspace = ""
             self.backgroundOpacity = 1.0
         }
 
@@ -459,7 +459,6 @@ class QuickTerminalController: BaseTerminalController {
             self.quickTerminalAnimationDuration = config.quickTerminalAnimationDuration
             self.quickTerminalAutoHide = config.quickTerminalAutoHide
             self.quickTerminalSpaceBehavior = config.quickTerminalSpaceBehavior
-            self.windowColorspace = config.windowColorspace
             self.backgroundOpacity = config.backgroundOpacity
         }
     }

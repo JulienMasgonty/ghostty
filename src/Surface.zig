@@ -1316,8 +1316,8 @@ pub fn imePoint(self: *const Surface) apprt.IMEPos {
     const content_scale = self.rt_surface.getContentScale() catch .{ .x = 1, .y = 1 };
 
     const x: f64 = x: {
-        // Simple x * cell width gives the top-left corner
-        var x: f64 = @floatFromInt(cursor.x * self.size.cell.width);
+        // Simple x * cell width gives the top-left corner, then add padding offset
+        var x: f64 = @floatFromInt(cursor.x * self.size.cell.width + self.size.padding.left);
 
         // We want the midpoint
         x += @as(f64, @floatFromInt(self.size.cell.width)) / 2;
@@ -1329,8 +1329,8 @@ pub fn imePoint(self: *const Surface) apprt.IMEPos {
     };
 
     const y: f64 = y: {
-        // Simple x * cell width gives the top-left corner
-        var y: f64 = @floatFromInt(cursor.y * self.size.cell.height);
+        // Simple y * cell height gives the top-left corner, then add padding offset
+        var y: f64 = @floatFromInt(cursor.y * self.size.cell.height + self.size.padding.top);
 
         // We want the bottom
         y += @floatFromInt(self.size.cell.height);
@@ -1590,6 +1590,15 @@ pub fn preeditCallback(self: *Surface, preedit_: ?[]const u8) !void {
 
     self.renderer_state.mutex.lock();
     defer self.renderer_state.mutex.unlock();
+
+    // We clear our selection when ANY OF:
+    // 1. We have an existing preedit
+    // 2. We have preedit text
+    if (self.renderer_state.preedit != null or
+        preedit_ != null)
+    {
+        self.setSelection(null) catch {};
+    }
 
     // We always clear our prior preedit
     if (self.renderer_state.preedit) |p| {
@@ -3554,22 +3563,21 @@ fn dragLeftClickTriple(
     const screen = &self.io.terminal.screen;
     const click_pin = self.mouse.left_click_pin.?.*;
 
-    // Get the word under our current point. If there isn't a word, do nothing.
-    const word = screen.selectLine(.{ .pin = drag_pin }) orelse return;
+    // Get the line selection under our current drag point. If there isn't a
+    // line, do nothing.
+    const line = screen.selectLine(.{ .pin = drag_pin }) orelse return;
 
-    // Get our selection to grow it. If we don't have a selection, start it now.
-    // We may not have a selection if we started our dbl-click in an area
-    // that had no data, then we dragged our mouse into an area with data.
-    var sel = screen.selectLine(.{ .pin = click_pin }) orelse {
-        try self.setSelection(word);
-        return;
-    };
+    // Get the selection under our click point. We first try to trim
+    // whitespace if we've selected a word. But if no word exists then
+    // we select the blank line.
+    const sel_ = screen.selectLine(.{ .pin = click_pin }) orelse
+        screen.selectLine(.{ .pin = click_pin, .whitespace = null });
 
-    // Grow our selection
+    var sel = sel_ orelse return;
     if (drag_pin.before(click_pin)) {
-        sel.startPtr().* = word.start();
+        sel.startPtr().* = line.start();
     } else {
-        sel.endPtr().* = word.end();
+        sel.endPtr().* = line.end();
     }
     try self.setSelection(sel);
 }
@@ -4165,6 +4173,12 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         .toggle_split_zoom => try self.rt_app.performAction(
             .{ .surface = self },
             .toggle_split_zoom,
+            {},
+        ),
+
+        .toggle_maximize => try self.rt_app.performAction(
+            .{ .surface = self },
+            .toggle_maximize,
             {},
         ),
 

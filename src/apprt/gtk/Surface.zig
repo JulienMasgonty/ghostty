@@ -25,7 +25,6 @@ const ResizeOverlay = @import("ResizeOverlay.zig");
 const inspector = @import("inspector.zig");
 const gtk_key = @import("key.zig");
 const c = @import("c.zig").c;
-const x11 = @import("x11.zig");
 
 const log = std.log.scoped(.gtk_surface);
 
@@ -1384,6 +1383,12 @@ fn gtkResize(area: *c.GtkGLArea, width: c.gint, height: c.gint, ud: ?*anyopaque)
             return;
         };
 
+        if (self.container.window()) |window| {
+            window.winproto.resizeEvent() catch |err| {
+                log.warn("failed to notify window protocol of resize={}", .{err});
+            };
+        }
+
         self.resize_overlay.maybeShow();
     }
 }
@@ -1489,31 +1494,37 @@ fn gtkMouseMotion(
         .y = @floatCast(scaled.y),
     };
 
-    // When the GLArea is resized under the mouse, GTK issues a mouse motion
-    // event. This has the unfortunate side effect of causing focus to potentially
-    // change when `focus-follows-mouse` is enabled. To prevent this, we check
-    // if the cursor is still in the same place as the last event and only grab
-    // focus if it has moved.
+    // There seem to be at least two cases where GTK issues a mouse motion
+    // event without the cursor actually moving:
+    // 1. GLArea is resized under the mouse. This has the unfortunate
+    //    side effect of causing focus to potentially change when
+    //    `focus-follows-mouse` is enabled.
+    // 2. The window title is updated. This can cause the mouse to unhide
+    //    incorrectly when hide-mouse-when-typing is enabled.
+    // To prevent incorrect behavior, we'll only grab focus and
+    // continue with callback logic if the cursor has actually moved.
     const is_cursor_still = @abs(self.cursor_pos.x - pos.x) < 1 and
         @abs(self.cursor_pos.y - pos.y) < 1;
 
-    // If we don't have focus, and we want it, grab it.
-    const gl_widget = @as(*c.GtkWidget, @ptrCast(self.gl_area));
-    if (!is_cursor_still and c.gtk_widget_has_focus(gl_widget) == 0 and self.app.config.@"focus-follows-mouse") {
-        self.grabFocus();
+    if (!is_cursor_still) {
+        // If we don't have focus, and we want it, grab it.
+        const gl_widget = @as(*c.GtkWidget, @ptrCast(self.gl_area));
+        if (c.gtk_widget_has_focus(gl_widget) == 0 and self.app.config.@"focus-follows-mouse") {
+            self.grabFocus();
+        }
+
+        // Our pos changed, update
+        self.cursor_pos = pos;
+
+        // Get our modifiers
+        const gtk_mods = c.gdk_event_get_modifier_state(event);
+        const mods = gtk_key.translateMods(gtk_mods);
+
+        self.core_surface.cursorPosCallback(self.cursor_pos, mods) catch |err| {
+            log.err("error in cursor pos callback err={}", .{err});
+            return;
+        };
     }
-
-    // Our pos changed, update
-    self.cursor_pos = pos;
-
-    // Get our modifiers
-    const gtk_mods = c.gdk_event_get_modifier_state(event);
-    const mods = gtk_key.translateMods(gtk_mods);
-
-    self.core_surface.cursorPosCallback(self.cursor_pos, mods) catch |err| {
-        log.err("error in cursor pos callback err={}", .{err});
-        return;
-    };
 }
 
 fn gtkMouseLeave(
@@ -1699,11 +1710,10 @@ pub fn keyEvent(
 
     // Get our modifier for the event
     const mods: input.Mods = gtk_key.eventMods(
-        @ptrCast(self.gl_area),
         event,
         physical_key,
         gtk_mods,
-        if (self.app.x11_xkb) |*xkb| xkb else null,
+        &self.app.winproto,
     );
 
     // Get our consumed modifiers

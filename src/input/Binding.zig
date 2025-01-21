@@ -391,6 +391,9 @@ pub const Action = union(enum) {
     /// This only works for macOS currently.
     close_all_windows: void,
 
+    /// Toggle maximized window state. This only works on Linux.
+    toggle_maximize: void,
+
     /// Toggle fullscreen mode of window.
     toggle_fullscreen: void,
 
@@ -416,7 +419,7 @@ pub const Action = union(enum) {
     /// is preserved between appearances, so you can always press the keybinding
     /// to bring it back up.
     ///
-    /// To enable the quick terminally globally so that Ghostty doesn't
+    /// To enable the quick terminal globally so that Ghostty doesn't
     /// have to be focused, prefix your keybind with `global`. Example:
     ///
     /// ```ini
@@ -441,10 +444,10 @@ pub const Action = union(enum) {
     toggle_quick_terminal: void,
 
     /// Show/hide all windows. If all windows become shown, we also ensure
-    /// Ghostty is focused.
+    /// Ghostty becomes focused. When hiding all windows, focus is yielded
+    /// to the next application as determined by the OS.
     ///
-    /// This currently only works on macOS. When hiding all windows, we do
-    /// not yield focus to the previous application.
+    /// This currently only works on macOS.
     toggle_visibility: void,
 
     /// Quit ghostty.
@@ -737,6 +740,7 @@ pub const Action = union(enum) {
             .close_surface,
             .close_tab,
             .close_window,
+            .toggle_maximize,
             .toggle_fullscreen,
             .toggle_window_decorations,
             .toggle_secure_input,
